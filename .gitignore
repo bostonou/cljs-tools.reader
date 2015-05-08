@@ -1,0 +1,11 @@
+
+*.swp
+
+target/
+resources/
+
+figwheel_server.log
+
+.idea/
+*.iml
+*.nrepl*

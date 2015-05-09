@@ -1,14 +1,137 @@
 (ns ^{:doc "A cljs reader in cljs"
       :author "Boston"}
   cljs.tools.reader
-  (:require [cljs.tools.reader.reader-types :refer [string-push-back-reader]]))
+  (:require [cljs.tools.reader.reader-types :refer [string-push-back-reader
+                                                    reader-error
+                                                    indexing-reader?
+                                                    get-line-number
+                                                    get-column-number
+                                                    get-file-name
+                                                    peek-char
+                                                    read-char
+                                                    unread]]
+            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?]]
+            [cljs.tools.reader.impl.commons :refer [number-literal?]])
+  (:require-macros [cljs.tools.reader.reader-types :refer [log-source]])
+  (:import goog.string.StringBuffer))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; helpers
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(declare ^:private read*
+         macros dispatch-macros
+         ^:dynamic *read-eval*
+         ^:dynamic *data-readers*
+         ^:dynamic *default-data-reader-fn*
+         ^:dynamic *suppress-read*
+         default-data-readers)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; readers
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defonce ^:private READ_EOF (js/Object.))
+(defonce ^:private READ_FINISHED (js/Object.))
+
+(defn- read-number
+  [rdr initch]
+  (loop [sb (.append (StringBuffer.) initch)
+         ch (read-char rdr)]
+    (if (or (whitespace? ch) (macros ch) (nil? ch))
+      (let [s (str sb)]
+        (unread rdr ch)
+        (or (match-number s)
+            (reader-error rdr "Invalid number format [" s "]")))
+      (recur (doto sb (.append ch)) (read-char rdr)))))
+
+(defn- macros [ch]
+  (case ch
+;    \" read-string*
+;    \: read-keyword
+;    \; read-comment
+;    \' (wrapping-reader 'quote)
+;    \@ (wrapping-reader 'clojure.core/deref)
+;    \^ read-meta
+;    \` read-syntax-quote ;;(wrapping-reader 'syntax-quote)
+;    \~ read-unquote
+;    \( read-list
+;    \) read-unmatched-delimiter
+;    \[ read-vector
+;    \] read-unmatched-delimiter
+;    \{ read-map
+;    \} read-unmatched-delimiter
+;    \\ read-char*
+;    \% read-arg
+;    \# read-dispatch
+    nil))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Public API
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def ^:dynamic *read-eval*
+  "Defaults to true.
+
+   ***WARNING***
+   This setting implies that the full power of the reader is in play,
+   including syntax that can cause code to execute. It should never be
+   used with untrusted sources. See also: clojure.tools.reader.edn/read.
+
+   When set to logical false in the thread-local binding,
+   the eval reader (#=) and *record/type literal syntax* are disabled in read/load.
+   Example (will fail): (binding [*read-eval* false] (read-string \"#=(* 2 21)\"))
+
+   When set to :unknown all reads will fail in contexts where *read-eval*
+   has not been explicitly bound to either true or false. This setting
+   can be a useful diagnostic tool to ensure that all of your reads
+   occur in considered contexts."
+  true)
 
 (defn- read*
   ([reader eof-error? sentinel opts pending-forms]
     (read* reader eof-error? sentinel nil opts pending-forms))
   ([reader eof-error? sentinel return-on opts pending-forms]
     (when (= :unknown *read-eval*)
-      (reader-error "Reading disallowed - *read-eval* bound to :unknown"))))
+      (reader-error "Reading disallowed - *read-eval* bound to :unknown"))
+   (try
+     (loop []
+       (log-source reader
+                   (if (seq pending-forms)
+                     (.remove ^List pending-forms 0)
+                     (let [ch (read-char reader)]
+                       (cond
+                         (whitespace? ch) (recur)
+                         (nil? ch) (if eof-error? (reader-error reader "EOF") sentinel)
+                         (= ch return-on) READ_FINISHED
+                         (number-literal? reader ch) (read-number reader ch)
+                         :else (let [f (macros ch)]
+                                 (if f
+                                   (let [res (f reader ch opts pending-forms)]
+                                     (if (identical? res reader)
+                                       (recur)
+                                       res))
+                                   (read-symbol reader ch))))))))
+     (catch js/Error e
+       (if (ex-info? e)
+         (let [d (ex-data e)]
+           (if (= :reader-exception (:type d))
+             (throw e)
+             (throw (ex-info (.getMessage e)
+                             (merge {:type :reader-exception}
+                                    d
+                                    (if (indexing-reader? reader)
+                                      {:line   (get-line-number reader)
+                                       :column (get-column-number reader)
+                                       :file   (get-file-name reader)}))
+                             e))))
+         (throw (ex-info (.getMessage e)
+                         (merge {:type :reader-exception}
+                                (if (indexing-reader? reader)
+                                  {:line   (get-line-number reader)
+                                   :column (get-column-number reader)
+                                   :file   (get-file-name reader)}))
+                         e)))))))
 
 (defn read
   "Reads the first object from an IPushbackReader.
@@ -33,8 +156,8 @@
   {:arglists '([] [reader] [opts reader] [reader eof-error? eof-value])}
   #_([] (read *in* true nil))
   ([reader] (read reader true nil))
-  ([{eof :eof :as opts :or {eof :eofthrow}} reader] (read* reader (= eof :eofthrow) eof nil opts (LinkedList.)))
-  ([reader eof-error? sentinel] (read* reader eof-error? sentinel nil {} (LinkedList.))))
+  ([{eof :eof :as opts :or {eof :eofthrow}} reader] (read* reader (= eof :eofthrow) eof nil opts (list)))
+  ([reader eof-error? sentinel] (read* reader eof-error? sentinel nil {} (list))))
 
 (defn read-string
   "Reads one object from the string s.

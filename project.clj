@@ -26,8 +26,7 @@
      {:output-to  "resources/test/tools.reader.test.js"
       :source-map "resources/test/tools.reader.test.js.map"
       :output-dir "resources/test/out"
-      :optimizations :simple}}
-    ]}
+      :optimizations :simple}}]}
 
   :figwheel {
              ;; :http-server-root "public" ;; default and assumes "resources" 

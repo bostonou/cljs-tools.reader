@@ -13,7 +13,8 @@
             [cljs.tools.reader.impl.commons :refer [number-literal?
                                                     match-number
                                                     parse-symbol]]
-            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?]])
+            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?]]
+            [goog.string :as gstring])
   (:require-macros [cljs.tools.reader.reader-types :refer [log-source]])
   (:import goog.string.StringBuffer))
 
@@ -51,6 +52,79 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; readers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn- read-unicode-char
+  ([token offset length base]
+   (let [l (+ offset length)]
+     (when-not (== (count token) l)
+       (throw (js/Error. (str "Invalid unicode character: \\" token))))
+     (js/String.fromCharCode (js/parseInt (subs token offset) base))))
+
+  ([rdr initch base length exact?]
+   (loop [i 1 uc (js/parseInt initch (int base))]
+     (if (== uc -1)
+       (throw (js/Error. (str "Invalid digit: " initch)))
+       (if-not (== i length)
+         (let [ch (peek-char rdr)]
+           (if (or (whitespace? ch)
+                   (macros ch)
+                   (nil? ch))
+             (if exact?
+               (throw (js/Error.
+                        (str "Invalid character length: " i ", should be: " length)))
+               (char uc))
+             (let [d (js/parseInt ch (int base))]
+               (read-char rdr)
+               (if (== d -1)
+                 (throw (js/Error. (str "Invalid digit: " ch)))
+                 (do (prn "b") (recur (inc i) (+ d (* uc base))))))))
+         (char uc))))))
+
+(def ^:private ^:const upper-limit (.charCodeAt \uD7ff 0))
+(def ^:private ^:const lower-limit (.charCodeAt \uE000 0))
+
+(defn- read-char*
+  "Read in a character literal"
+  [rdr backslash opts pending-forms]
+  (let [ch (read-char rdr)]
+    (if-not (nil? ch)
+      (let [token (if (or (macro-terminating? ch)
+                          (whitespace? ch))
+                    (str ch)
+                    (read-token rdr ch))
+            token-len (count token)]
+        (cond
+
+          (== 1 token-len)  (nth token 0) #_ (Character/valueOf (nth token 0))
+
+          (= token "newline") \newline
+          (= token "space") \space
+          (= token "tab") \tab
+          (= token "backspace") \backspace
+          (= token "formfeed") \formfeed
+          (= token "return") \return
+
+          (gstring/caseInsensitiveStartsWith token "u")
+          (let [c (read-unicode-char token 1 4 16)
+                ic (.charCodeAt c 0)]
+            (if (and (> ic upper-limit)
+                     (< ic lower-limit))
+              (reader-error rdr "Invalid character constant: \\u" c)
+              c))
+
+          (gstring/caseInsensitiveStartsWith token "o")
+          (let [len (dec token-len)]
+            (if (> len 3)
+              (reader-error rdr "Invalid octal escape sequence length: " len)
+              (let [offset 1
+                    base 8
+                    uc (read-unicode-char token offset len base)]
+                (if (> (js/parseInt (subs token offset) base) 0377)
+                  (reader-error rdr "Octal escape sequence must be in range [0, 377]")
+                  uc))))
+
+          :else (reader-error rdr "Unsupported character: \\" token)))
+      (reader-error rdr "EOF while reading character"))))
 
 (defonce ^:private READ_EOF (js/Object.))
 (defonce ^:private READ_FINISHED (js/Object.))
@@ -117,7 +191,7 @@
 ;    \] read-unmatched-delimiter
 ;    \{ read-map
 ;    \} read-unmatched-delimiter
-;    \\ read-char*
+    \\ read-char*
 ;    \% read-arg
 ;    \# read-dispatch
     nil))

@@ -117,5 +117,11 @@
   (is (= "foo\123bar" (read-string "\"foo\\123bar\"")))
 )
 
+(deftest read-list
+  (is (= '() (read-string "()")))
+  (is (= '(foo bar) (read-string "(foo bar)")))
+  (is (= '(foo (bar) baz) (read-string "(foo (bar) baz)")))
+)
+
 (enable-console-print!)
 (run-tests)

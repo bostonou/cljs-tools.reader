@@ -142,9 +142,6 @@
           :else (reader-error rdr "Unsupported character: \\" token)))
       (reader-error rdr "EOF while reading character"))))
 
-(defonce ^:private READ_EOF (js/Object.))
-(defonce ^:private READ_FINISHED (js/Object.))
-
 (defn ^:private starting-line-col-info [rdr]
   (when (indexing-reader? rdr)
     [(get-line-number rdr) (int (dec (get-column-number rdr)))]))
@@ -152,6 +149,42 @@
 (defn ^:private ending-line-col-info [rdr]
   (when (indexing-reader? rdr)
     [(get-line-number rdr) (get-column-number rdr)]))
+
+(defonce ^:private READ_EOF (js/Object.))
+(defonce ^:private READ_FINISHED (js/Object.))
+
+(defn- read-delimited
+  "Reads and returns a collection ended with delim"
+  [delim rdr opts pending-forms]
+  (let [[start-line start-column] (starting-line-col-info rdr)
+        delim (char delim)]
+    (loop [a (transient [])]
+      (let [form (read* rdr false READ_EOF delim opts pending-forms)]
+        (if (identical? form READ_FINISHED)
+          (persistent! a)
+          (if (identical? form READ_EOF)
+            (reader-error rdr "EOF while reading"
+                          (when start-line
+                            (str ", starting at line " start-line " and column " start-column)))
+            (recur (conj! a form))))))))
+
+(defn- read-list
+  "Read in a list, including its location if the reader is an indexing reader"
+  [rdr _ opts pending-forms]
+  (let [[start-line start-column] (starting-line-col-info rdr)
+        the-list (read-delimited \) rdr opts pending-forms)
+        [end-line end-column] (ending-line-col-info rdr)]
+    (with-meta (if (empty? the-list)
+                 '()
+                 (reverse (into '() the-list)))
+               (when start-line
+                 (merge
+                   (when-let [file (get-file-name rdr)]
+                     {:file file})
+                   {:line start-line
+                    :column start-column
+                    :end-line end-line
+                    :end-column end-column})))))
 
 (defn- read-number
   [rdr initch]
@@ -233,7 +266,7 @@
 ;    \^ read-meta
 ;    \` read-syntax-quote ;;(wrapping-reader 'syntax-quote)
 ;    \~ read-unquote
-;    \( read-list
+    \( read-list
 ;    \) read-unmatched-delimiter
 ;    \[ read-vector
 ;    \] read-unmatched-delimiter

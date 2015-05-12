@@ -57,5 +57,15 @@
           (read-string "-0B00000000011111111111111111111111")))
 )
 
+(deftest read-floating
+  (is (== 42.23 (read-string "42.23")))
+  (is (== +42.23 (read-string "+42.23")))
+  (is (== -42.23 (read-string "-42.23")))
+
+  (is (== 42.2e3 (read-string "42.2e3")))
+  (is (== +42.2e+3 (read-string "+42.2e+3")))
+  (is (== -42.2e-3 (read-string "-42.2e-3")))
+)
+
 (enable-console-print!)
 (run-tests)

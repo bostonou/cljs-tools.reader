@@ -67,5 +67,10 @@
   (is (== -42.2e-3 (read-string "-42.2e-3")))
 )
 
+#_(deftest read-ratio
+  (is (== 4/2 (read-string "4/2")))
+  (is (== 4/2 (read-string "+4/2")))
+  (is (== -4/2 (read-string "-4/2"))))
+
 (enable-console-print!)
 (run-tests)

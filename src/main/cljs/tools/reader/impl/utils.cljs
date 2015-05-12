@@ -17,6 +17,12 @@
     (or (gstring/isSpace ch)
         (identical? \,  ch))))
 
+(defn numeric?
+  "Checks whether a given character is numeric"
+  [ch]
+  (when ch
+    (gstring/isNumeric ch)))
+
 (defn newline?
   "Checks whether the character is a newline"
   [c]

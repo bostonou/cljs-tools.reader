@@ -1,5 +1,6 @@
 (ns cljs.tools.reader.impl.commons
   (:require [cljs.tools.reader.reader-types :refer [peek-char]]
+            [cljs.tools.reader.impl.utils :refer [numeric?]]
             [goog.string :as gstring]))
 
 (defn number-literal?
@@ -9,7 +10,7 @@
       (and (or (identical? \+ initch) (identical?  \- initch))
            (gstring/isNumeric (peek-char reader)))))
 
-(def int-pattern #"^([-+]?)(?:(0)|([1-9][0-9]*)|0[xX]([0-9A-Fa-f]+)|0([0-7]+)|0([0-7]*[8-9]+[0-7]*)|0b([0-1]+))$")
+(def int-pattern #"^([-+]?)(?:(0)|([1-9][0-9]*)|0[xX]([0-9A-Fa-f]+)|0([0-7]+)|0([0-7]*[8-9]+[0-7]*)|0[bB]([0-1]+))$")
 #_(def ratio-pattern #"([-+]?[0-9]+)/([0-9]+)")
 (def float-pattern #"^[-+]?[0-9]+(\.[0-9]*)?([eE][-+]?[0-9]+)?$")
 
@@ -52,3 +53,25 @@
           #_(let [ratio-matcher (js/RegExp. (.-source ratio-pattern) "g")]
             (when-let [ratio-matches (.exec ratio-matcher)]
               (match-ratio ratio-matches))))))))
+
+(defn parse-symbol
+  "Parses a string into a vector of the namespace and symbol"
+  [token]
+  (when-not (or (= "" token)
+                (.endsWith token ":")
+                (.startsWith token "::"))
+    (let [ns-idx (.indexOf token "/")]
+      (if-let [ns (and (pos? ns-idx)
+                       (subs token 0 ns-idx))]
+        (let [ns-idx (inc ns-idx)]
+          (when-not (== ns-idx (count token))
+            (let [sym (subs token ns-idx)]
+              (when (and (not (numeric? (nth sym 0)))
+                         (not (= "" sym))
+                         (not (.endsWith ns ":"))
+                         (or (= sym "/")
+                             (== -1 (.indexOf sym "/"))))
+                [ns sym]))))
+        (when (or (= token "/")
+                  (== -1 (.indexOf token "/")))
+          [nil token])))))

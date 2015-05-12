@@ -10,8 +10,10 @@
                                                     peek-char
                                                     read-char
                                                     unread]]
-            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?]]
-            [cljs.tools.reader.impl.commons :refer [number-literal?]])
+            [cljs.tools.reader.impl.commons :refer [number-literal?
+                                                    match-number
+                                                    parse-symbol]]
+            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?]])
   (:require-macros [cljs.tools.reader.reader-types :refer [log-source]])
   (:import goog.string.StringBuffer))
 
@@ -27,12 +29,39 @@
          ^:dynamic *suppress-read*
          default-data-readers)
 
+(defn- macro-terminating? [ch]
+  (case ch
+    (\" \; \@ \^ \` \~ \( \) \[ \] \{ \} \\) true
+    false))
+
+(defn- read-token
+  "Read in a single logical token from the reader"
+  [rdr initch]
+  (if-not initch
+    (reader-error rdr "EOF while reading")
+    (loop [sb (StringBuffer.) ch initch]
+      (if (or (whitespace? ch)
+              (macro-terminating? ch)
+              (nil? ch))
+        (do (when ch
+              (unread rdr ch))
+            (str sb))
+        (recur (.append sb ch) (read-char rdr))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; readers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defonce ^:private READ_EOF (js/Object.))
 (defonce ^:private READ_FINISHED (js/Object.))
+
+(defn ^:private starting-line-col-info [rdr]
+  (when (indexing-reader? rdr)
+    [(get-line-number rdr) (int (dec (get-column-number rdr)))]))
+
+(defn ^:private ending-line-col-info [rdr]
+  (when (indexing-reader? rdr)
+    [(get-line-number rdr) (get-column-number rdr)]))
 
 (defn- read-number
   [rdr initch]
@@ -44,6 +73,34 @@
         (or (match-number s)
             (reader-error rdr "Invalid number format [" s "]")))
       (recur (doto sb (.append ch)) (read-char rdr)))))
+
+(defn- read-symbol
+  [rdr initch]
+  (let [[line column] (starting-line-col-info rdr)]
+    (when-let [token (read-token rdr initch)]
+      (case token
+
+        ;; special symbols
+        "nil" nil
+        "true" true
+        "false" false
+        "/" '/
+        "NaN" js/NaN
+        "-Infinity" js/Number.NEGATIVE_INFINITY
+        ("Infinity" "+Infinity") js/Number.POSITIVE_INFINITY
+
+        (or (when-let [p (parse-symbol token)]
+              (with-meta (symbol (p 0) (p 1))
+                         (when line
+                           (merge
+                             (when-let [file (get-file-name rdr)]
+                               {:file file})
+                             (let [[end-line end-column] (ending-line-col-info rdr)]
+                               {:line line
+                                :column column
+                                :end-line end-line
+                                :end-column end-column})))))
+            (reader-error rdr "Invalid token: " token))))))
 
 (defn- macros [ch]
   (case ch

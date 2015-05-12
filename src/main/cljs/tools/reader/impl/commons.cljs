@@ -9,31 +9,27 @@
       (and (or (identical? \+ initch) (identical?  \- initch))
            (gstring/isNumeric (peek-char reader)))))
 
-(def int-pattern #"([-+]?)(?:(0)|([1-9][0-9]*)|0[xX]([0-9A-Fa-f]+)|0([0-7]+)|([1-9][0-9]?)[rR]([0-9A-Za-z]+)|0[0-9]+)(N)?")
+(def int-pattern #"^([-+]?)(?:(0)|([1-9][0-9]*)|0[xX]([0-9A-Fa-f]+)|0([0-7]+)|0([0-7]*[8-9]+[0-7]*)|0b([0-1]+))$")
 #_(def ratio-pattern #"([-+]?[0-9]+)/([0-9]+)")
-(def float-pattern #"([-+]?[0-9]+(\.[0-9]*)?([eE][-+]?[0-9]+)?)(M)?")
+(def float-pattern #"^[-+]?[0-9]+(\.[0-9]*)?([eE][-+]?[0-9]+)?$")
 
 (defn- match-int
-  [^Matcher m]
-  (if (.group m 2)
-    (if (.group m 8) 0N 0)
-    (let [negate? (= "-" (.group m 1))
-          a (cond
-              (.group m 3) [(.group m 3) 10]
-              (.group m 4) [(.group m 4) 16]
-              (.group m 5) [(.group m 5) 8]
-              (.group m 7) [(.group m 7) (Integer/parseInt (.group m 6))]
-              :else        [nil nil])
-          ^String n (a 0)
-          radix (int (a 1))]
-      (when n
-        (let [bn (BigInteger. n radix)
-              bn (if negate? (.negate bn) bn)]
-          (if (.group m 8)
-            (BigInt/fromBigInteger bn)
-            (if (< (.bitLength bn) 64)
-              (.longValue bn)
-              (BigInt/fromBigInteger bn))))))))
+  [m]
+  (if (aget m 2)
+    0
+    (let [negate? (= "-" (aget m 1))
+          [n-str radix] (cond
+                          (aget m 3) [(aget m 3) 10]
+                          (aget m 4) [(aget m 4) 16]
+                          (aget m 5) [(aget m 5) 8]
+                          (aget m 6) [(aget m 6) 10]
+                          (aget m 7) [(aget m 7) 2]
+                          :else [nil nil])]
+      (when n-str
+        (let [n-int (js/parseInt n-str radix)]
+          (if negate?
+            (* -1 n-int)
+            n-int))))))
 
 #_(defn- match-ratio
   [^Matcher m]
@@ -45,19 +41,14 @@
     (/ (-> numerator   BigInteger. BigInt/fromBigInteger Numbers/reduceBigInt)
        (-> denominator BigInteger. BigInt/fromBigInteger Numbers/reduceBigInt))))
 
-(defn- match-float
-  [^String s ^Matcher m]
-  (if (.group m 4)
-    (BigDecimal. ^String (.group m 1))
-    (Double/parseDouble s)))
-
-(defn match-number [^String s]
-  (let [int-matcher (.matcher int-pattern s)]
-    (if (.matches int-matcher)
-      (match-int int-matcher)
-      (let [float-matcher (.matcher float-pattern s)]
-        (if (.matches float-matcher)
-          (match-float s float-matcher)
-          #_(let [ratio-matcher (.matcher ratio-pattern s)]
-            (when (.matches ratio-matcher)
-              (match-ratio ratio-matcher))))))))
+(defn match-number [s]
+  ;;js RegExp with "g" are stateful
+  (let [int-matcher (js/RegExp. (.-source int-pattern) "g")]
+    (if-let [int-matches (.exec int-matcher s)]
+      (match-int int-matches)
+      (let [float-matcher (js/RegExp. (.-source float-pattern) "g")]
+        (if (.test float-matcher s)
+          (js/parseFloat s)
+          #_(let [ratio-matcher (js/RegExp. (.-source ratio-pattern) "g")]
+            (when-let [ratio-matches (.exec ratio-matcher)]
+              (match-ratio ratio-matches))))))))

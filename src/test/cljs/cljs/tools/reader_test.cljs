@@ -88,5 +88,11 @@
   (is (= js/Number.NEGATIVE_INFINITY (read-string "-Infinity"))) ;; not sure if this should be js version of Infinity
 )
 
+(deftest read-specials
+  (is (= 'nil nil))
+  (is (= 'false false))
+  (is (= 'true true))
+)
+
 (enable-console-print!)
 (run-tests)

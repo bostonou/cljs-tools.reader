@@ -13,7 +13,8 @@
             [cljs.tools.reader.impl.commons :refer [number-literal?
                                                     match-number
                                                     parse-symbol]]
-            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?]]
+            [cljs.tools.reader.impl.utils :refer [ex-info? whitespace?
+                                                  numeric?]]
             [goog.string :as gstring])
   (:require-macros [cljs.tools.reader.reader-types :refer [log-source]])
   (:import goog.string.StringBuffer))
@@ -53,15 +54,26 @@
 ;; readers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defn- char->code [ch base]
+  (let [code (js/parseInt ch base)]
+    (if (js/isNaN code)
+      -1
+      code)))
+
 (defn- read-unicode-char
   ([token offset length base]
    (let [l (+ offset length)]
      (when-not (== (count token) l)
        (throw (js/Error. (str "Invalid unicode character: \\" token))))
-     (js/String.fromCharCode (js/parseInt (subs token offset) base))))
+     (let [code (char->code (subs token offset) base)]
+       (if (= code -1)
+         (throw (js/Error. (str "Invalid unicode character: \\" token)))
+         ;;if we recur like original code, we can know the exact digit that was wrong
+         #_(throw (js/Error. (str "Invalid digit: " (nth token i))))
+         (js/String.fromCharCode code)))))
 
   ([rdr initch base length exact?]
-   (loop [i 1 uc (js/parseInt initch (int base))]
+   (loop [i 1 uc (char->code initch base)]
      (if (== uc -1)
        (throw (js/Error. (str "Invalid digit: " initch)))
        (if-not (== i length)
@@ -72,16 +84,19 @@
              (if exact?
                (throw (js/Error.
                         (str "Invalid character length: " i ", should be: " length)))
-               (char uc))
-             (let [d (js/parseInt ch (int base))]
+               (js/String.fromCharCode uc))
+             (let [d (char->code ch base)]
                (read-char rdr)
                (if (== d -1)
                  (throw (js/Error. (str "Invalid digit: " ch)))
-                 (do (prn "b") (recur (inc i) (+ d (* uc base))))))))
-         (char uc))))))
+                 (recur (inc i) (+ d (* uc base)))))))
+         (js/String.fromCharCode uc))))))
 
 (def ^:private ^:const upper-limit (.charCodeAt \uD7ff 0))
 (def ^:private ^:const lower-limit (.charCodeAt \uE000 0))
+
+(defn- valid-octal? [token base]
+  (<= (js/parseInt token base) 0377))
 
 (defn- read-char*
   "Read in a character literal"
@@ -95,7 +110,7 @@
             token-len (count token)]
         (cond
 
-          (== 1 token-len)  (nth token 0) #_ (Character/valueOf (nth token 0))
+          (== 1 token-len)  (nth token 0)
 
           (= token "newline") \newline
           (= token "space") \space
@@ -119,7 +134,7 @@
               (let [offset 1
                     base 8
                     uc (read-unicode-char token offset len base)]
-                (if (> (js/parseInt (subs token offset) base) 0377)
+                (if-not (valid-octal? (subs token offset) base)
                   (reader-error rdr "Octal escape sequence must be in range [0, 377]")
                   uc))))
 
@@ -147,6 +162,38 @@
         (or (match-number s)
             (reader-error rdr "Invalid number format [" s "]")))
       (recur (doto sb (.append ch)) (read-char rdr)))))
+
+(defn- escape-char [sb rdr]
+  (let [ch (read-char rdr)]
+    (case ch
+      \t "\t"
+      \r "\r"
+      \n "\n"
+      \\ "\\"
+      \" "\""
+      \b "\b"
+      \f "\f"
+      \u (let [ch (read-char rdr)]
+           (if (== -1 (char->code ch 16) #_(Character/digit (int ch) 16))
+             (reader-error rdr "Invalid unicode escape: \\u" ch)
+             (read-unicode-char rdr ch 16 4 true)))
+      (if (numeric? ch)
+        (let [uc (read-unicode-char rdr ch 8 3 false)]
+          (if-not (valid-octal? ch 8)
+            (reader-error rdr "Octal escape sequence must be in range [0, 377]")
+            uc))
+        (reader-error rdr "Unsupported escape character: \\" ch)))))
+
+(defn- read-string*
+  [reader _ opts pending-forms]
+  (loop [sb (StringBuffer.)
+         ch (read-char reader)]
+    (case ch
+      nil (reader-error reader "EOF while reading string")
+      \\ (recur (doto sb (.append (escape-char sb reader)))
+                (read-char reader))
+      \" (str sb)
+      (recur (doto sb (.append ch)) (read-char reader)))))
 
 (defn- read-symbol
   [rdr initch]
@@ -177,7 +224,7 @@
 
 (defn- macros [ch]
   (case ch
-;    \" read-string*
+    \" read-string*
 ;    \: read-keyword
 ;    \; read-comment
 ;    \' (wrapping-reader 'quote)

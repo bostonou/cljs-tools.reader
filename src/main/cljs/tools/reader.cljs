@@ -65,12 +65,13 @@
    (let [l (+ offset length)]
      (when-not (== (count token) l)
        (throw (js/Error. (str "Invalid unicode character: \\" token))))
-     (let [code (char->code (subs token offset) base)]
-       (if (= code -1)
-         (throw (js/Error. (str "Invalid unicode character: \\" token)))
-         ;;if we recur like original code, we can know the exact digit that was wrong
-         #_(throw (js/Error. (str "Invalid digit: " (nth token i))))
-         (js/String.fromCharCode code)))))
+     (loop [i offset uc 0]
+       (if (== i l)
+         (js/String.fromCharCode uc)
+         (let [d (char->code (nth token i) base)]
+           (if (== d -1)
+             (throw (js/Error. (str "Invalid digit: " (nth token i))))
+             (recur (inc i) (+ d (* uc base)))))))))
 
   ([rdr initch base length exact?]
    (loop [i 1 uc (char->code initch base)]

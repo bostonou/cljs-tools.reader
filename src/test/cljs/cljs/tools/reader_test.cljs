@@ -72,5 +72,21 @@
   (is (== 4/2 (read-string "+4/2")))
   (is (== -4/2 (read-string "-4/2"))))
 
+(deftest read-symbol
+  (is (= 'foo (read-string "foo")))
+  (is (= 'foo/bar (read-string "foo/bar")))
+  (is (= '*+!-_? (read-string "*+!-_?")))
+  (is (= 'abc:def:ghi (read-string "abc:def:ghi")))
+  (is (= 'abc.def/ghi (read-string "abc.def/ghi")))
+  (is (= 'abc/def.ghi (read-string "abc/def.ghi")))
+  (is (= 'abc:def/ghi:jkl.mno (read-string "abc:def/ghi:jkl.mno")))
+  (is (instance? cljs.core/Symbol (read-string "alphabet")))
+  (is (= "foo//" (str (read-string "foo//"))))
+  (is (js/isNaN (read-string "NaN"))) ;; not sure if this should be js/NaN
+  (is (= js/Number.POSITIVE_INFINITY (read-string "Infinity"))) ;; not sure if this should be js version of Infinity
+  (is (= js/Number.POSITIVE_INFINITY (read-string "+Infinity"))) ;; not sure if this should be js version of Infinity
+  (is (= js/Number.NEGATIVE_INFINITY (read-string "-Infinity"))) ;; not sure if this should be js version of Infinity
+)
+
 (enable-console-print!)
 (run-tests)

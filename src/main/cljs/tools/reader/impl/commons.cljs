@@ -58,8 +58,8 @@
   "Parses a string into a vector of the namespace and symbol"
   [token]
   (when-not (or (= "" token)
-                (.endsWith token ":")
-                (.startsWith token "::"))
+                (gstring/caseInsensitiveEndsWith token ":")
+                (gstring/caseInsensitiveStartsWith token "::"))
     (let [ns-idx (.indexOf token "/")]
       (if-let [ns (and (pos? ns-idx)
                        (subs token 0 ns-idx))]
@@ -68,7 +68,7 @@
             (let [sym (subs token ns-idx)]
               (when (and (not (numeric? (nth sym 0)))
                          (not (= "" sym))
-                         (not (.endsWith ns ":"))
+                         (not (gstring/caseInsensitiveEndsWith ns ":"))
                          (or (= sym "/")
                              (== -1 (.indexOf sym "/"))))
                 [ns sym]))))

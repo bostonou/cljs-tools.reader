@@ -79,7 +79,6 @@
   (let [[line column] (starting-line-col-info rdr)]
     (when-let [token (read-token rdr initch)]
       (case token
-
         ;; special symbols
         "nil" nil
         "true" true
@@ -154,21 +153,21 @@
    (try
      (loop []
        (log-source reader
-                   (if (seq pending-forms)
-                     (.remove ^List pending-forms 0)
-                     (let [ch (read-char reader)]
-                       (cond
-                         (whitespace? ch) (recur)
-                         (nil? ch) (if eof-error? (reader-error reader "EOF") sentinel)
-                         (= ch return-on) READ_FINISHED
-                         (number-literal? reader ch) (read-number reader ch)
-                         :else (let [f (macros ch)]
-                                 (if f
-                                   (let [res (f reader ch opts pending-forms)]
-                                     (if (identical? res reader)
-                                       (recur)
-                                       res))
-                                   (read-symbol reader ch))))))))
+         (if (seq pending-forms)
+           (.remove ^List pending-forms 0)
+           (let [ch (read-char reader)]
+             (cond
+               (whitespace? ch) (recur)
+               (nil? ch) (if eof-error? (reader-error reader "EOF") sentinel)
+               (= ch return-on) READ_FINISHED
+               (number-literal? reader ch) (read-number reader ch)
+               :else (let [f (macros ch)]
+                       (if f
+                         (let [res (f reader ch opts pending-forms)]
+                           (if (identical? res reader)
+                             (recur)
+                             res))
+                         (read-symbol reader ch))))))))
      (catch js/Error e
        (if (ex-info? e)
          (let [d (ex-data e)]
